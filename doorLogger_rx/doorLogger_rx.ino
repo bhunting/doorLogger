@@ -10,19 +10,12 @@
  * Listens for messages from the transmitter and prints them out.
  */
 
-#include <RF24Network.h>
-#include <RF24.h>
 #include <SPI.h>
 #include <U8x8lib.h>  // OLED display
 #include "LPD8806.h"  // RGB LED strand
 
 
 /***********************************************************************/
-// NRF24L01 radio comm 
-RF24 radio(9,10);                // nRF24L01(+) radio attached using Getting Started board 
-RF24Network network(radio);      // Network uses that radio
-const uint16_t this_node = 00;    // Address of our node in Octal format ( 04,031, etc)
-const uint16_t other_node = 02;   // Address of the other node in Octal format
 // 12345678901234567890123456789012   array count
 // 01234567890123456789012345678901   array index position
 // YYMMDD,HHMMSS,F,M,B,P,C
@@ -97,8 +90,6 @@ void setup(void)
   pinMode(buttonTwoPin, INPUT_PULLUP);
 
   SPI.begin();
-  radio.begin();
-  network.begin(/*channel*/ 90, /*node address*/ this_node);
   /* U8g2 Project: SSD1306 Test Board */
   u8x8.begin();
   u8x8.setPowerSave(0);
@@ -111,67 +102,12 @@ void setup(void)
 
 void loop(void)
 {
-  network.update();                  // Check the network regularly
-  while ( network.available() ) 
-  {     // Is there anything ready for us?
-    Serial.print("incoming msg: ");
-    commFailCnt = 0; // reset recv'd mesg error count
-    commOK = 1;      // flag that comm is ok
-    RF24NetworkHeader header;        // If so, grab it and print it out
-    network.read(header,doorStatusString,sizeof(doorStatusString));
-    
-    if( header.type == 'D' )
-    {
-      commDumpRecv = 1;
-    }
-
-    if( strncmp( doorStatusString, doorChangeArray[doorChangeArrayHead], doorChangeArrayCols) != 0 )
-    {
-      strncpy(doorChangeArray[++doorChangeArrayHead], doorStatusString, (doorChangeArrayCols-1) );
-    }
-    if( doorChangeArrayHead > (doorChangeArrayRows-1) ) 
-    {
-      doorChangeArrayHead = 0;
-    }
-
-    Serial.println(doorStatusString);
-
     // update doorStatusArray
-    doorStatusArray[ 0 ] = doorStatusString[ frontDoorStringPos ] - '0';
-    doorStatusArray[ 1 ] = doorStatusString[ mudroomDoorStringPos ] - '0';
-    doorStatusArray[ 2 ] = doorStatusString[ backDoorStringPos ] - '0';
-    doorStatusArray[ 3 ] = doorStatusString[ pirDoorStringPos ] - '0';
-  }
+    //doorStatusArray[ 0 ] = doorStatusString[ frontDoorStringPos ] - '0';
+    //doorStatusArray[ 1 ] = doorStatusString[ mudroomDoorStringPos ] - '0';
+    //doorStatusArray[ 2 ] = doorStatusString[ backDoorStringPos ] - '0';
+    //doorStatusArray[ 3 ] = doorStatusString[ pirDoorStringPos ] - '0';
 
-
-  // Commands via Serial Console
-  if ( Serial.available() )
-  {
-    char c = toupper(Serial.read());
-    if ( c == 'D' )
-    {      
-      RF24NetworkHeader header(/*to node*/ other_node);
-      header.type = 'D';
-      bool ok = network.write(header,0,0);
-      if (ok)
-        Serial.println("ok.");
-      else
-        Serial.println("failed.");
-    }
-    else
-    {
-      if ( c == 'S' )
-      {
-        RF24NetworkHeader header(/*to node*/ other_node);
-        header.type = 'S';
-        bool ok = network.write(header,0,0);
-        if (ok)
-          Serial.println("ok.");
-        else
-          Serial.println("failed.");
-        }
-    }
-  }
 
   static int clearSent = 0;  
   unsigned long now = millis(); // Update display and LED string once ever n-millisecs
@@ -220,25 +156,6 @@ void loop(void)
       strip.setPixelColor( 3, 100, 100, 0); // PIR
     }
     strip.show();
-  }
-
-  if ( (now - last_poll_time) >= pollCommTime )
-  {
-    last_poll_time = now;
-    RF24NetworkHeader header(/*to node*/ other_node);
-    if( 0 == commDumpRecv )
-    {
-      header.type = 'D';
-    }
-    else
-    {
-      header.type = 'S';
-    }
-    bool ok = network.write(header,0,0);
-    if( ++commFailCnt > 10 )
-    {
-      commOK = 0; // false, comm NOT ok
-    }
   }
 
   if ( (now - last_displayOff_time) >= displayOffTimeout )
