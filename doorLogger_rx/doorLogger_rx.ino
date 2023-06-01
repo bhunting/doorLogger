@@ -10,19 +10,18 @@
  * Listens for messages from the transmitter and prints them out.
  */
 
-#include <RF24Network.h>
-#include <RF24.h>
 #include <SPI.h>
 #include <U8x8lib.h>  // OLED display
 #include "LPD8806.h"  // RGB LED strand
 
+#define IDX_FRONT     (0)
+#define IDX_BACK      (1)
+#define IDX_MUDROOM   (2)
+#define IDX_PIR       (3)
+#define NUM_DOORS     (4)
 
 /***********************************************************************/
-// NRF24L01 radio comm 
-RF24 radio(9,10);                // nRF24L01(+) radio attached using Getting Started board 
-RF24Network network(radio);      // Network uses that radio
-const uint16_t this_node = 00;    // Address of our node in Octal format ( 04,031, etc)
-const uint16_t other_node = 02;   // Address of the other node in Octal format
+// Arrays used for OLED display positions and values
 // 12345678901234567890123456789012   array count
 // 01234567890123456789012345678901   array index position
 // YYMMDD,HHMMSS,F,M,B,P,C
@@ -35,11 +34,6 @@ static const int pirDoorStringPos = 20;
 const int doorChangeArrayRows = 5;
 const int doorChangeArrayCols = 24;
 static char doorChangeArray[doorChangeArrayRows][doorChangeArrayCols];
-
-// initallize to max value, index is incremented before use
-// Increment from max value should roll over to zero.
-static unsigned char doorChangeArrayHead = 255; 
-static unsigned char doorChangeArrayTail = 0;
 
 /***********************************************************************/
 // RGB LED strand
@@ -56,8 +50,6 @@ LPD8806 strip = LPD8806(nLEDs, dataPin, clockPin);
 static U8X8_SSD1306_128X64_NONAME_4W_HW_SPI u8x8(/* cs=*/ 7, /* dc=*/ 8, /* reset=*/ 6);
 static const unsigned long display_update_interval = 1000; // ms       // Delay.
 static unsigned long last_time_display_update;
-static const unsigned long pollCommTime = 10000; // 10000 ms = 10 sec
-static unsigned long last_poll_time;
 static const unsigned long displayOffTimeout = 60000; // 60000 ms = 60 sec
 static unsigned long last_displayOff_time;
 
@@ -65,10 +57,7 @@ static unsigned long last_displayOff_time;
 // General variables
 static const int numDoors = 4;
 static int doorStatusArray[ numDoors ];
-static int commTimeout = 0;
-static int commDumpRecv = 0;
 static int commOK = 1;
-static int commFailCnt = 0;
 static const int buttonOnePin = A2;
 static const int buttonTwoPin = A3;
 int buttonOneState;             // the current reading from the input pin
@@ -82,11 +71,14 @@ unsigned long lastDebounceTimeButtonOne = 0;  // the last time the output pin wa
 unsigned long lastDebounceTimeButtonTwo = 0;  // the last time the output pin was toggled
 unsigned long debounceDelay = 50;    // the debounce time; increase if the output flickers
 
+bool espSyncOk = false;
+long espTimeout;
+long timerNow;
+
 /***********************************************************************/
 void setup(void)
 {
-  Serial.begin(115200);
-  Serial.println("RF24Network/examples/helloworld_rx_door/");
+  Serial.begin(19200);
 
   pinMode(7, OUTPUT);     // OLED CS
   digitalWrite(7, HIGH);  // de-select OLED CS  
@@ -97,8 +89,6 @@ void setup(void)
   pinMode(buttonTwoPin, INPUT_PULLUP);
 
   SPI.begin();
-  radio.begin();
-  network.begin(/*channel*/ 90, /*node address*/ this_node);
   /* U8g2 Project: SSD1306 Test Board */
   u8x8.begin();
   u8x8.setPowerSave(0);
@@ -107,69 +97,36 @@ void setup(void)
   strip.begin();
   // Update the strip, to start they are all 'off'
   strip.show();  
+
+  // esp-link
+  esplink_setup1();
+  espTimeout = millis();
 }
 
 void loop(void)
 {
-  network.update();                  // Check the network regularly
-  while ( network.available() ) 
-  {     // Is there anything ready for us?
-    Serial.print("incoming msg: ");
-    commFailCnt = 0; // reset recv'd mesg error count
-    commOK = 1;      // flag that comm is ok
-    RF24NetworkHeader header;        // If so, grab it and print it out
-    network.read(header,doorStatusString,sizeof(doorStatusString));
-    
-    if( header.type == 'D' )
-    {
-      commDumpRecv = 1;
-    }
-
-    if( strncmp( doorStatusString, doorChangeArray[doorChangeArrayHead], doorChangeArrayCols) != 0 )
-    {
-      strncpy(doorChangeArray[++doorChangeArrayHead], doorStatusString, (doorChangeArrayCols-1) );
-    }
-    if( doorChangeArrayHead > (doorChangeArrayRows-1) ) 
-    {
-      doorChangeArrayHead = 0;
-    }
-
-    Serial.println(doorStatusString);
-
     // update doorStatusArray
-    doorStatusArray[ 0 ] = doorStatusString[ frontDoorStringPos ] - '0';
-    doorStatusArray[ 1 ] = doorStatusString[ mudroomDoorStringPos ] - '0';
-    doorStatusArray[ 2 ] = doorStatusString[ backDoorStringPos ] - '0';
-    doorStatusArray[ 3 ] = doorStatusString[ pirDoorStringPos ] - '0';
-  }
+    //doorStatusArray[ 0 ] = doorStatusString[ frontDoorStringPos ] - '0';
+    //doorStatusArray[ 1 ] = doorStatusString[ mudroomDoorStringPos ] - '0';
+    //doorStatusArray[ 2 ] = doorStatusString[ backDoorStringPos ] - '0';
+    //doorStatusArray[ 3 ] = doorStatusString[ pirDoorStringPos ] - '0';
 
-
-  // Commands via Serial Console
-  if ( Serial.available() )
+  // attempt to sync and finish initializing esp link
+  timerNow = millis(); // capture timer at this loop
+  if( espSyncOk )
   {
-    char c = toupper(Serial.read());
-    if ( c == 'D' )
-    {      
-      RF24NetworkHeader header(/*to node*/ other_node);
-      header.type = 'D';
-      bool ok = network.write(header,0,0);
-      if (ok)
-        Serial.println("ok.");
-      else
-        Serial.println("failed.");
-    }
-    else
+    esplink_loop();
+  }
+  else // sync not ok so try to sync
+  {
+    if ( (timerNow - espTimeout) > 1000 ) // check about once per second until synced
     {
-      if ( c == 'S' )
+      if( espSyncOk = check_esp_link_sync() )
       {
-        RF24NetworkHeader header(/*to node*/ other_node);
-        header.type = 'S';
-        bool ok = network.write(header,0,0);
-        if (ok)
-          Serial.println("ok.");
-        else
-          Serial.println("failed.");
-        }
+        Serial.println("Call setup2");
+        esplink_setup2(); // finish esp link setup once synced
+      }
+      espTimeout = timerNow;
     }
   }
 
@@ -222,25 +179,6 @@ void loop(void)
     strip.show();
   }
 
-  if ( (now - last_poll_time) >= pollCommTime )
-  {
-    last_poll_time = now;
-    RF24NetworkHeader header(/*to node*/ other_node);
-    if( 0 == commDumpRecv )
-    {
-      header.type = 'D';
-    }
-    else
-    {
-      header.type = 'S';
-    }
-    bool ok = network.write(header,0,0);
-    if( ++commFailCnt > 10 )
-    {
-      commOK = 0; // false, comm NOT ok
-    }
-  }
-
   if ( (now - last_displayOff_time) >= displayOffTimeout )
   {
     last_displayOff_time = now;
@@ -280,6 +218,4 @@ void loop(void)
   }
   // save the reading. Next time through the loop, it'll be the lastButtonState:
   lastButtonOneState = reading;
-
-
 }
