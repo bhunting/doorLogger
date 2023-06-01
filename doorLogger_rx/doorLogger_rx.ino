@@ -14,8 +14,14 @@
 #include <U8x8lib.h>  // OLED display
 #include "LPD8806.h"  // RGB LED strand
 
+#define IDX_FRONT     (0)
+#define IDX_BACK      (1)
+#define IDX_MUDROOM   (2)
+#define IDX_PIR       (3)
+#define NUM_DOORS     (4)
 
 /***********************************************************************/
+// Arrays used for OLED display positions and values
 // 12345678901234567890123456789012   array count
 // 01234567890123456789012345678901   array index position
 // YYMMDD,HHMMSS,F,M,B,P,C
@@ -28,11 +34,6 @@ static const int pirDoorStringPos = 20;
 const int doorChangeArrayRows = 5;
 const int doorChangeArrayCols = 24;
 static char doorChangeArray[doorChangeArrayRows][doorChangeArrayCols];
-
-// initallize to max value, index is incremented before use
-// Increment from max value should roll over to zero.
-static unsigned char doorChangeArrayHead = 255; 
-static unsigned char doorChangeArrayTail = 0;
 
 /***********************************************************************/
 // RGB LED strand
@@ -49,8 +50,6 @@ LPD8806 strip = LPD8806(nLEDs, dataPin, clockPin);
 static U8X8_SSD1306_128X64_NONAME_4W_HW_SPI u8x8(/* cs=*/ 7, /* dc=*/ 8, /* reset=*/ 6);
 static const unsigned long display_update_interval = 1000; // ms       // Delay.
 static unsigned long last_time_display_update;
-static const unsigned long pollCommTime = 10000; // 10000 ms = 10 sec
-static unsigned long last_poll_time;
 static const unsigned long displayOffTimeout = 60000; // 60000 ms = 60 sec
 static unsigned long last_displayOff_time;
 
@@ -58,10 +57,7 @@ static unsigned long last_displayOff_time;
 // General variables
 static const int numDoors = 4;
 static int doorStatusArray[ numDoors ];
-static int commTimeout = 0;
-static int commDumpRecv = 0;
 static int commOK = 1;
-static int commFailCnt = 0;
 static const int buttonOnePin = A2;
 static const int buttonTwoPin = A3;
 int buttonOneState;             // the current reading from the input pin
@@ -75,11 +71,14 @@ unsigned long lastDebounceTimeButtonOne = 0;  // the last time the output pin wa
 unsigned long lastDebounceTimeButtonTwo = 0;  // the last time the output pin was toggled
 unsigned long debounceDelay = 50;    // the debounce time; increase if the output flickers
 
+bool espSyncOk = false;
+long espTimeout;
+long timerNow;
+
 /***********************************************************************/
 void setup(void)
 {
-  Serial.begin(115200);
-  Serial.println("RF24Network/examples/helloworld_rx_door/");
+  Serial.begin(19200);
 
   pinMode(7, OUTPUT);     // OLED CS
   digitalWrite(7, HIGH);  // de-select OLED CS  
@@ -98,6 +97,10 @@ void setup(void)
   strip.begin();
   // Update the strip, to start they are all 'off'
   strip.show();  
+
+  // esp-link
+  esplink_setup1();
+  espTimeout = millis();
 }
 
 void loop(void)
@@ -108,6 +111,24 @@ void loop(void)
     //doorStatusArray[ 2 ] = doorStatusString[ backDoorStringPos ] - '0';
     //doorStatusArray[ 3 ] = doorStatusString[ pirDoorStringPos ] - '0';
 
+  // attempt to sync and finish initializing esp link
+  timerNow = millis(); // capture timer at this loop
+  if( espSyncOk )
+  {
+    esplink_loop();
+  }
+  else // sync not ok so try to sync
+  {
+    if ( (timerNow - espTimeout) > 1000 ) // check about once per second until synced
+    {
+      if( espSyncOk = check_esp_link_sync() )
+      {
+        Serial.println("Call setup2");
+        esplink_setup2(); // finish esp link setup once synced
+      }
+      espTimeout = timerNow;
+    }
+  }
 
   static int clearSent = 0;  
   unsigned long now = millis(); // Update display and LED string once ever n-millisecs
@@ -197,6 +218,4 @@ void loop(void)
   }
   // save the reading. Next time through the loop, it'll be the lastButtonState:
   lastButtonOneState = reading;
-
-
 }

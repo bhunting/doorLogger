@@ -45,7 +45,10 @@ bool connected;
 void mqttConnected(void* response) 
 {
   Serial.println("MQTT connected!");
-  mqtt.subscribe("/doorlogger/GET");
+  mqtt.subscribe("/doorlogger/FRONT");
+  mqtt.subscribe("/doorlogger/BACK");
+  mqtt.subscribe("/doorlogger/MUDROOM");
+  mqtt.subscribe("/doorlogger/PIR");
   connected = true;
 }
 
@@ -69,9 +72,21 @@ void mqttData(void* response)
   String data = res->popString();
   Serial.println(data);
 
-  if( topic == "/doorlogger/GET")
+  if( topic == "/doorlogger/FRONT")
   {
-    esplink_update(1);
+    doorStatusArray[IDX_FRONT] = (data == "0"?0:1);
+  }
+  if( topic == "/doorlogger/BACK")
+  {
+    doorStatusArray[IDX_BACK] = (data == "0"?0:1);
+  }
+  if( topic == "/doorlogger/MUDROOM")
+  {
+    doorStatusArray[IDX_MUDROOM] = (data == "0"?0:1);
+  }
+  if( topic == "/doorlogger/PIR")
+  {
+    doorStatusArray[IDX_PIR] = (data == "0"?0:1);
   }
 }
 
@@ -90,6 +105,8 @@ void esplink_setup1()
 
 bool check_esp_link_sync()
 {
+  Serial.println("Called link_sync");
+
   return esp.Sync();
 }
 
@@ -103,57 +120,11 @@ void esplink_setup2()
   mqtt.publishedCb.attach(mqttPublished);
   mqtt.dataCb.attach(mqttData);
   mqtt.setup();
-
-  //Serial.println("ARDUINO: setup mqtt lwt");
-  //mqtt.lwt("/lwt", "offline", 0, 0); //or mqtt.lwt("/lwt", "offline");
-
   Serial.println("EL-MQTT ready");
-  timeoutOne = millis();  
 }
 
 void esplink_loop() 
 {
   esp.Process();
-
-  uint32_t now = millis();
-  char buf[12];
-
-  if (connected && (now - timeoutOne) > 10000) 
-  {
-
-    itoa(frontDoorState, buf, 10);
-    mqtt.publish("/doorlogger/FRONT", buf);
-
-    itoa(backDoorState, buf, 10);
-    mqtt.publish("/doorlogger/BACK", buf);
-
-    itoa(mudroomDoorState, buf, 10);
-    mqtt.publish("/doorlogger/MUDROOM", buf);
-
-    itoa(pirState, buf, 10);
-    mqtt.publish("/doorlogger/PIR", buf);
-
-    timeoutOne = now;
-  }
 }
 
-void esplink_update(int changeFlag) 
-{
-  esp.Process();
-  char buf[12];
-
-  if (connected && (0 != changeFlag)) 
-  {
-    itoa(frontDoorState, buf, 10);
-    mqtt.publish("/doorlogger/FRONT", buf);
-
-    itoa(backDoorState, buf, 10);
-    mqtt.publish("/doorlogger/BACK", buf);
-
-    itoa(mudroomDoorState, buf, 10);
-    mqtt.publish("/doorlogger/MUDROOM", buf);
-
-    itoa(pirState, buf, 10);
-    mqtt.publish("/doorlogger/PIR", buf);
-  }
-}
