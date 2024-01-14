@@ -1,8 +1,12 @@
 /*
-  SimpleMQTTClient.ino
-  The purpose of this exemple is to illustrate a simple handling of MQTT and Wifi connection.
-  Once it connects successfully to a Wifi network and a MQTT broker, it subscribe to a topic and send a message to it.
-  It will also send a message delayed 5 seconds later.
+  garageTransmitter.ino derived from SimpleMQTTClient.ino
+  Code to run on a WEMOS D1 mini clone to monitor the switches for the garage doors
+  and transmit MQTT messages to the home RASPI MQTT broker on door switch state changes.
+  This code monitors the garage door switches and sends the door state to the MQTT broker.
+  This code runs in the WEMOS D1 that is in the garage wired to the garage door closed switches.
+  There is a single RGB LED shield on the board stack to indicate RED or GREEN if any garage
+  doors are open (RED) or if all garage doors are closed (GREEN).
+  https://www.wemos.cc/en/latest/d1/d1_mini.html
 */
 
 /* From https://randomnerdtutorials.com/esp8266-pinout-reference-gpios/

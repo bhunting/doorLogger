@@ -1,9 +1,31 @@
 /*
-  SimpleMQTTClient.ino
-  The purpose of this exemple is to illustrate a simple handling of MQTT and Wifi connection.
-  Once it connects successfully to a Wifi network and a MQTT broker, it subscribe to a topic and send a message to it.
-  It will also send a message delayed 5 seconds later.
+  WEMOS D1 mini clone with WEMOS 7 pixel RGB_LED shield.
+  Used to display the 7 door states for the 3 house doors, the 3 garage doors, and the TV PIR sensor.
+  This code subscribes to the RASPI MQTT broker to listen to the door messages and display the door 
+  status on the LEDs.  This code does not monitor the actual door sensors.  This code only subscribes 
+  to MQTT messages and displayes on the LEDs the status of the messages.
+  See for docs on the RGB shield https://www.wemos.cc/en/latest/d1_mini_shield/rgb_led.html
+  https://www.wemos.cc/en/latest/d1/d1_mini.html
 */
+
+/* From https://randomnerdtutorials.com/esp8266-pinout-reference-gpios/
+ * 
+ * Label  GPIO	  Input	        Output	              Notes
+ * D0	    GPIO16	no interrupt	no PWM or I2C support	HIGH at boot used to wake up from deep sleep
+ * D1	    GPIO5	  OK	          OK	                  often used as SCL (I2C)
+ * D2	    GPIO4	  OK	          OK	                  often used as SDA (I2C)
+ * D3	    GPIO0	  pulled up	    OK	                  connected to FLASH button, boot fails if pulled LOW
+ * D4	    GPIO2	  pulled up	    OK	                  HIGH at boot connected to on-board LED, boot fails if pulled LOW
+ * D5	    GPIO14	OK	          OK	                  SPI (SCLK)
+ * D6	    GPIO12	OK	          OK	                  SPI (MISO)
+ * D7	    GPIO13	OK	          OK	                  SPI (MOSI)
+ * D8     GPIO15	pulled to GND	OK	                  SPI (CS) Boot fails if pulled HIGH
+ * RX	    GPIO3	  OK	          RX pin	              HIGH at boot
+ * TX	    GPIO1	  TX pin	      OK	                  HIGH at boot debug output at boot, boot fails if pulled LOW
+ * A0	    ADC0	  Analog Input	X	
+ * 
+*/
+
 #include "E:/dev/sw/credentials.h"
 
 #include "EspMQTTClient.h"
@@ -30,10 +52,13 @@ Adafruit_NeoPixel leds = Adafruit_NeoPixel(LED_NUM, PIN, NEO_GRB + NEO_KHZ800);
 uint8_t ledArray[LED_NUM][3] = {0};
 
 // LED array index for each door
-#define IDX_FRONT   (1)
-#define IDX_BACK    (2)
-#define IDX_MUDROOM (3)
-#define IDX_PIR     (4)
+#define IDX_FRONT     (0)
+#define IDX_BACK      (1)
+#define IDX_MUDROOM   (2)
+#define IDX_PIR       (3)
+#define IDX_GAR_WEST  (4)
+#define IDX_GAR_MID   (5)
+#define IDX_GAR_EAST  (6)
 
 long ledTimeout; // LED update timer
 long timerNow;
@@ -121,6 +146,48 @@ void onConnectionEstablished()
     else
     {
       setLedArray(IDX_PIR,50,0,0);
+    }
+    doorChange = true;
+  });
+
+  client.subscribe("/garagedoors/WEST", [](const String & payload) 
+  {
+    //Serial.println(payload);
+    if( payload == "0")
+    {
+      setLedArray(IDX_GAR_WEST,0,50,0);
+    }
+    else
+    {
+      setLedArray(IDX_GAR_WEST,50,0,0);
+    }
+    doorChange = true;
+  });
+
+  client.subscribe("/garagedoors/MIDDLE", [](const String & payload) 
+  {
+    //Serial.println(payload);
+    if( payload == "0")
+    {
+      setLedArray(IDX_GAR_MID,0,50,0);
+    }
+    else
+    {
+      setLedArray(IDX_GAR_MID,50,0,0);
+    }
+    doorChange = true;
+  });
+
+  client.subscribe("/garagedoors/EAST", [](const String & payload) 
+  {
+    //Serial.println(payload);
+    if( payload == "0")
+    {
+      setLedArray(IDX_GAR_EAST,0,50,0);
+    }
+    else
+    {
+      setLedArray(IDX_GAR_EAST,50,0,0);
     }
     doorChange = true;
   });
